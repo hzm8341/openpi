@@ -46,12 +46,19 @@ class CheckpointWeightLoader(WeightLoader):
     """
 
     params_path: str
+    missing_regex: str = ".*lora.*"
+    skip_mismatch_regex: str | None = "action_(in|out)_proj/.*"
 
     def load(self, params: at.Params) -> at.Params:
         # We are loading np.ndarray and relying on the training code to properly convert and shard the params.
         loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
         # Add all missing LoRA weights.
-        return _merge_params(loaded_params, params, missing_regex=".*lora.*")
+        return _merge_params(
+            loaded_params,
+            params,
+            missing_regex=self.missing_regex,
+            skip_mismatch_regex=self.skip_mismatch_regex,
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,13 +80,17 @@ class PaliGemmaWeightLoader(WeightLoader):
         return _merge_params(loaded_params, params, missing_regex=".*")
 
 
-def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex: str) -> at.Params:
+def _merge_params(
+    loaded_params: at.Params, params: at.Params, *, missing_regex: str, skip_mismatch_regex: str | None = None
+) -> at.Params:
     """Merges the loaded parameters with the reference parameters.
 
     Args:
         loaded_params: The parameters to merge.
         params: The reference parameters.
         missing_regex: A regex pattern for all missing keys that should be merged from the reference parameters.
+        skip_mismatch_regex: A regex pattern for keys whose checkpoint values should be skipped when their shapes do
+            not match the reference parameters.
 
     Returns:
         A new dictionary with the merged parameters.
@@ -88,16 +99,28 @@ def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex:
     flat_loaded = flax.traverse_util.flatten_dict(loaded_params, sep="/")
 
     # First, take all weights that are a subset of the reference weights.
+    skip_mismatch_pattern = re.compile(skip_mismatch_regex) if skip_mismatch_regex is not None else None
     result = {}
+    skipped_keys = set()
     for k, v in flat_loaded.items():
         if k in flat_ref:
+            if v.shape != flat_ref[k].shape:
+                if skip_mismatch_pattern is not None and skip_mismatch_pattern.fullmatch(k):
+                    logger.info(
+                        "Skipping checkpoint param with mismatched shape at %s: checkpoint %s, model %s",
+                        k,
+                        v.shape,
+                        flat_ref[k].shape,
+                    )
+                    skipped_keys.add(k)
+                    continue
             result[k] = v.astype(flat_ref[k].dtype) if v.dtype != flat_ref[k].dtype else v
 
     flat_loaded.clear()
 
     # Then, merge any missing weights as defined by the missing regex.
     pattern = re.compile(missing_regex)
-    for k in {k for k in flat_ref if pattern.fullmatch(k)}:
+    for k in {k for k in flat_ref if pattern.fullmatch(k) or k in skipped_keys}:
         if k not in result:
             result[k] = flat_ref[k]
 
