@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.right_arm_policy as right_arm_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -460,6 +461,45 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
         )
+
+
+def right_arm_0423_data_config(
+    repo_id: str = "./0423_right8_chest_rightwrist",
+    assets_dir: str | None = None,
+) -> SimpleDataConfig:
+    return SimpleDataConfig(
+        repo_id=repo_id,
+        assets=AssetsConfig(assets_dir=assets_dir, asset_id="0423_right8_chest_rightwrist"),
+        data_transforms=lambda model: _transforms.Group(
+            inputs=[
+                right_arm_policy.RightArmInputs(),
+                _transforms.DeltaActions(_transforms.make_bool_mask(7, -1)),
+            ],
+            outputs=[
+                _transforms.AbsoluteActions(_transforms.make_bool_mask(7, -1)),
+                right_arm_policy.RightArmOutputs(),
+            ],
+        ),
+        base_config=DataConfig(
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "image": {
+                                "chest": "observation.images.chest_cam",
+                                "right_wrist": "observation.images.wrist_cam_right",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "prompt",
+                        }
+                    )
+                ]
+            ),
+            action_sequence_keys=("action",),
+            prompt_from_task=True,
+        ),
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -916,6 +956,61 @@ _CONFIGS = [
         num_train_steps=20_000,
         batch_size=32,
     ),
+    TrainConfig(
+        name="pi05_0423_right8_chest_wrist_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+        ),
+        data=right_arm_0423_data_config(assets_dir="./assets/pi05_0423_right8_chest_wrist_finetune"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=1e-5,
+            decay_steps=20_000,
+            decay_lr=1e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        num_train_steps=5_000,
+        batch_size=32,
+        log_interval=50,
+        save_interval=1000,
+        keep_period=5000,
+    ),
+    TrainConfig(
+        name="pi05_0423_right8_chest_wrist_low_mem_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=right_arm_0423_data_config(assets_dir="./assets/pi05_0423_right8_chest_wrist_finetune"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=3e-6,
+            decay_steps=20_000,
+            decay_lr=3e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=3_000,
+        batch_size=1,
+        log_interval=50,
+        save_interval=1000,
+        keep_period=5000,
+    ),
     #
     # ALOHA Sim configs. This config is used to demonstrate how to train on a simple simulated environment.
     #
@@ -963,6 +1058,24 @@ _CONFIGS = [
         num_train_steps=10,
         overwrite=True,
         exp_name="debug_pi05",
+        wandb_enabled=False,
+    ),
+    TrainConfig(
+        name="debug_pi05_0423_right8",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=8,
+            action_horizon=16,
+            paligemma_variant="dummy",
+            action_expert_variant="dummy",
+        ),
+        data=right_arm_0423_data_config(assets_dir="./assets/pi05_0423_right8_chest_wrist_finetune"),
+        batch_size=2,
+        num_workers=0,
+        num_train_steps=2,
+        save_interval=100,
+        overwrite=True,
+        exp_name="debug_pi05_0423_right8",
         wandb_enabled=False,
     ),
     # RoboArena & PolaRiS configs.
