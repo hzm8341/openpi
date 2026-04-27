@@ -6,12 +6,12 @@ set -euo pipefail
 # Common overrides:
 #   EXP_NAME=my_run BATCH_SIZE=64 NUM_TRAIN_STEPS=10000 ./run_train_pi05_0423_right8.sh
 #   RESUME=1 ./run_train_pi05_0423_right8.sh
-#   WANDB_ENABLED=0 ./run_train_pi05_0423_right8.sh
+#   DATASET_DIR=./scene1_right8_chest_rightwrist ./run_train_pi05_0423_right8.sh
 
 CONFIG_NAME="${CONFIG_NAME:-pi05_0423_right8_chest_wrist_low_mem_finetune}"
-DATASET_DIR="${DATASET_DIR:-./scene1_right8_chest_rightwrist}"
-ASSETS_DIR="${ASSETS_DIR:-./assets/pi05_scene1_right8_chest_wrist_finetune}"
-ASSET_ID="${ASSET_ID:-scene1_right8_chest_rightwrist}"
+DATASET_DIR="${DATASET_DIR:-/data/scene1_right8_chest_rightwrist}"
+ASSETS_DIR="${ASSETS_DIR:-/data/assets/pi05_scene1_right8_chest_wrist_finetune}"
+ASSET_ID="${ASSET_ID:-0423_right8_chest_rightwrist}"
 CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-./checkpoints}"
 OPENPI_DATA_HOME="${OPENPI_DATA_HOME:-$(pwd)}"
 export OPENPI_DATA_HOME
@@ -28,9 +28,9 @@ LOG_INTERVAL="${LOG_INTERVAL:-50}"
 KEEP_PERIOD="${KEEP_PERIOD:-5000}"
 NUM_WORKERS="${NUM_WORKERS:-2}"
 FSDP_DEVICES="${FSDP_DEVICES:-1}"
-WANDB_ENABLED="${WANDB_ENABLED:-1}"
+WANDB_ENABLED="${WANDB_ENABLED:-0}"
 RESUME="${RESUME:-0}"
-OVERWRITE="${OVERWRITE:-0}"
+OVERWRITE="${OVERWRITE:-1}"
 
 if [[ ! -f "${DATASET_DIR}/meta/info.json" ]]; then
   echo "Missing dataset: ${DATASET_DIR}/meta/info.json" >&2
